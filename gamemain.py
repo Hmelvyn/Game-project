@@ -9,8 +9,14 @@ pygame.init()
 pygame.display.set_caption("Platformer")
 
 WIDTH, HEIGHT = 1000, 600
-FPS = 40
+FPS = 50
 PLAYER_VEL = 5
+
+left_boundary = -2525
+right_boundary = 2925
+stop_scroll_l = -1835
+stop_scroll_r = 2715
+
 
 
 window = pygame.display.set_mode((WIDTH, HEIGHT))
@@ -70,13 +76,13 @@ class Player(pygame.sprite.Sprite):
         self.jump_count = 0
     
     def jump(self):
-        self.y_vel = -self.GFORCE * 8
+        self.y_vel = -self.GFORCE * 10
         self.animation_count = 0
         self.jump_count += 1
         if self.jump_count == 1:
             self.how_long_falling = 0
     
-    def move(self, dx, dy):
+    def move(self, dx, dy):        
         self.rect.x += dx
         self.rect.y += dy
 
@@ -194,7 +200,7 @@ def handle_vertical_collision(player, objects, dy):
 
     return collided_objects
 
-def collide(player, objects, dx):
+def collide(player, objects, dx, dy):
     player.move(dx, 0)
     player.update()
     collided_object = None
@@ -202,24 +208,38 @@ def collide(player, objects, dx):
         if pygame.sprite.collide_mask(player, obj):
             collided_object = obj
             break
-
+    
     player.move(-dx, 0)
     player.update()
     return collided_object
 
+
+
 def handle_move(player, objects):
+
+
     keys = pygame.key.get_pressed()
 
     player.x_vel = 0
-    collide_left = collide(player, objects, -PLAYER_VEL)
-    collide_right = collide(player, objects, PLAYER_VEL)
- 
-    if keys[pygame.K_LEFT]:
-        player.move_left(PLAYER_VEL)
-    if keys[pygame.K_RIGHT]:
-        player.move_right(PLAYER_VEL)
-
     handle_vertical_collision(player, objects, player.y_vel)
+    collide_left = collide(player, objects, -PLAYER_VEL, player.y_vel * 2)
+    collide_right = collide(player, objects, PLAYER_VEL, player.y_vel * 2)
+ 
+    if keys[pygame.K_LEFT] and not collide_left:
+        if player.rect.x > left_boundary:  #controls boundary on left
+            player.move_left(PLAYER_VEL) 
+            
+    if keys[pygame.K_RIGHT] and not collide_right:
+        if player.rect.x < right_boundary: #controls boundary on right
+            player.move_right(PLAYER_VEL)
+           
+                
+
+    if player.rect.top < 0:  # Top boundary check
+        player.rect.top = 0
+        player.y_vel = 0
+
+    # handle_vertical_collision(player, objects, player.y_vel)
 
 
 def main(window):
@@ -228,18 +248,26 @@ def main(window):
 
     block_size = 96
 
-    player = Player(100, 100, 50, 50)    
+    player = Player(35, 344, 50, 50)    
     floor = [Block(i * block_size, HEIGHT - block_size, block_size) 
              for i in range (-(WIDTH * 2) // block_size, (WIDTH * 3) // block_size)]
     objects = [*floor, Block(0, HEIGHT - block_size * 2, block_size),
-               Block(block_size * 3, HEIGHT - block_size * 4, block_size)]
+               Block(block_size * 3, HEIGHT - block_size * 4, block_size), Block(1500, 344, block_size), Block(1800, 144, block_size)]
+    starting_pos = (player.rect.x - 50)
 
-    offset_x = 0
-    scroll_area_width = 200
+    offset_x = (starting_pos) #gives the ideal starting position
+    scroll_area_width = 200 #210 in reality, 10 possible transparent pixel
+
+    print_counter = 0
+
+
 
     run = True
     while run:
         clock.tick(FPS)
+        
+        print_counter += 1
+        
 
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
@@ -249,13 +277,33 @@ def main(window):
             if event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_SPACE and player.jump_count < 2:
                     player.jump()
+                    
 
         player.loop(FPS)
         handle_move(player, objects)
+       
         draw(window, background, bg_image, player, objects, offset_x)
 
-        if ((player.rect.right - offset_x >= WIDTH - scroll_area_width) and player.x_vel > 0) or ((player.rect.left - offset_x <= scroll_area_width) and player.x_vel < 0):
-            offset_x += player.x_vel
+        edge_distance_r = player.rect.right - offset_x
+        dist_from_scroll_r = WIDTH - scroll_area_width
+        edge_distance_l = player.rect.left - offset_x
+
+        if player.rect.y > 600:
+            print("Dead")
+
+
+        if print_counter == 80:
+            print(edge_distance_r, dist_from_scroll_r, edge_distance_l, scroll_area_width)
+            print(player.rect.x, player.rect.y)
+            print(stop_scroll_l)
+            print_counter = 0
+
+        
+        if player.rect.x > stop_scroll_l and player.rect.x < stop_scroll_r:
+            if ((edge_distance_r >= dist_from_scroll_r) and player.x_vel > 0) or ((edge_distance_l <= scroll_area_width) and player.x_vel < 0):
+                offset_x += player.x_vel
+         
+        
 
     pygame.quit()
     quit()
