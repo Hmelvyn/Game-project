@@ -74,9 +74,11 @@ class Player(pygame.sprite.Sprite):
         self.animation_count = 0
         self.how_long_falling = 0
         self.jump_count = 0
+        self.hit = False
+        self.hit_time = 0
     
     def jump(self):
-        self.y_vel = -self.GFORCE * 10
+        self.y_vel = -self.GFORCE * 8
         self.animation_count = 0
         self.jump_count += 1
         if self.jump_count == 1:
@@ -85,6 +87,11 @@ class Player(pygame.sprite.Sprite):
     def move(self, dx, dy):        
         self.rect.x += dx
         self.rect.y += dy
+
+    def got_hit(self):
+        self.hit = True
+        self.hit_time = 0
+
 
     def move_left(self, vel):
         self.x_vel = -vel
@@ -101,6 +108,10 @@ class Player(pygame.sprite.Sprite):
     def loop(self, fps):
         self.y_vel += min(1, (self.how_long_falling / fps) * self.GFORCE)
         self.move(self.x_vel, self.y_vel)
+        if self.hit:
+            self.hit_time += 1
+        if self.hit_time > fps * 2:
+            self.hit = False
 
         self.how_long_falling += 1
         self.update_sprite()
@@ -116,7 +127,9 @@ class Player(pygame.sprite.Sprite):
 
     def update_sprite(self):
         sprite_sheet = "idle"
-        if self.y_vel < 0:
+        if self.hit:
+            sprite_sheet = "hit"
+        elif self.y_vel < 0:
             if self.jump_count == 1:
                 sprite_sheet = "jump"
             elif self.jump_count == 2:
@@ -160,6 +173,36 @@ class Block(Object):
         self.image.blit(block, (0, 0))
         self.mask = pygame.mask.from_surface(self.image)
 
+class Saw(Object):
+    ANIMATION_LAG = 3
+
+
+    def __init__(self, x, y, width, height):
+        super().__init__(x, y, width, height, "saw")
+        self.saw = load_sprite_sheets("Traps", "Saw", width, height)
+        self.image = self.saw["off"][0]
+        self.mask = pygame.mask.from_surface(self.image)
+        self.animation_count = 0
+        self.animation_name = "off" 
+    
+    def on(self):
+        self.animation_name = "on"
+
+    def off(self):
+        self.animation_name = "off"
+    
+    def loop(self):    
+        sprites = self.saw[self.animation_name]
+        sprite_index = (self.animation_count // self.ANIMATION_LAG) % len(sprites)
+        self.image = sprites[sprite_index]
+        self.animation_count += 1
+
+        self.rect = self.image.get_rect(topleft=(self.rect.x, self.rect.y))
+        self.mask = pygame.mask.from_surface(self.image)
+
+        if self.animation_count // self.ANIMATION_LAG > len(sprites):
+            self.animation_count = 0
+
 
 
 def get_background(name):
@@ -189,14 +232,38 @@ def handle_vertical_collision(player, objects, dy):
     collided_objects = []
     for obj in objects:
         if pygame.sprite.collide_mask(player, obj):
-            if dy > 0:
-                player.rect.bottom = obj.rect.top
-                player.landed()
-            elif dy < 0:
-                player.rect.top = obj.rect.bottom
-                player.hit_head()
+            if obj.name == "saw":
+                # Determine collision direction
+                if dy > 0:
+                    # Player is falling onto the saw
+                    player.rect.bottom = obj.rect.top  # Place player above the saw
+                    player.y_vel = -player.GFORCE * 5  # Simulate a bounce upwards
+                elif dy < 0:
+                    # Player is hitting the saw from below (unlikely for saw, but for completeness)
+                    player.rect.top = obj.rect.bottom  # Move player below the saw
+                    player.y_vel = player.GFORCE * 5  # Simulate a bounce downwards
+                
+                # Horizontal bounce (optional, adjust as needed)
+                if player.rect.centerx < obj.rect.centerx:
+                    # Player is on the left of the saw
+                    player.rect.right = obj.rect.left  # Move player to the left of the saw
+                    player.x_vel = -PLAYER_VEL  # Simulate a bounce to the left
+                else:
+                    # Player is on the right of the saw
+                      # Move player to the right of the saw
+                    player.x_vel = PLAYER_VEL  # Simulate a bounce to the right
 
-            collided_objects.append(obj)
+            else:
+                # Handle normal collision with other objects
+                if dy > 0:
+                    player.rect.bottom = obj.rect.top  # Place player above the object
+                    player.landed()  # Reset jump count, stop falling
+                elif dy < 0:
+                    player.rect.top = obj.rect.bottom  # Move player below the object
+                    player.hit_head()  # Reverse vertical velocity
+     
+
+                collided_objects.append(obj)
 
     return collided_objects
 
@@ -232,6 +299,12 @@ def handle_move(player, objects):
     if keys[pygame.K_RIGHT] and not collide_right:
         if player.rect.x < right_boundary: #controls boundary on right
             player.move_right(PLAYER_VEL)
+
+    vertical_collide = handle_vertical_collision(player, objects, player.y_vel)
+    check_obj = [collide_left, collide_right, *vertical_collide] # * for vertical collide looks through all objects
+    for obj in check_obj:
+        if obj and obj.name == 'saw':
+            player.got_hit()
            
                 
 
@@ -245,20 +318,33 @@ def handle_move(player, objects):
 def main(window):
     clock = pygame.time.Clock()
     background, bg_image = get_background("Pink.png")
-
+    
+    #objects
+    up_1_saw = (38 * 2)
     block_size = 96
 
-    player = Player(35, 344, 50, 50)    
+
+    player = Player(35, 344, 50, 50)
+    saw1 = Saw(500, HEIGHT - block_size - up_1_saw, 38, 38)    #may need to adjust size
+    saw2 = Saw(500, HEIGHT - block_size - up_1_saw * 2, 38, 38)
+    saw3 = Saw(500, HEIGHT - block_size - up_1_saw * 5, 38, 38)
+    saw4 = Saw(500, HEIGHT - block_size - up_1_saw * 6, 38, 38)
+    saw1.on()
+    saw2.on()
+    saw3.on()
+    saw4.on()
     floor = [Block(i * block_size, HEIGHT - block_size, block_size) 
              for i in range (-(WIDTH * 2) // block_size, (WIDTH * 3) // block_size)]
     objects = [*floor, Block(0, HEIGHT - block_size * 2, block_size),
-               Block(block_size * 3, HEIGHT - block_size * 4, block_size), Block(1500, 344, block_size), Block(1800, 144, block_size)]
+               Block(block_size * 3, HEIGHT - block_size * 4, block_size), Block(1500, 344, block_size), Block(1800, 144, block_size), saw1, saw2, saw3, saw4]
     starting_pos = (player.rect.x - 50)
 
     offset_x = (starting_pos) #gives the ideal starting position
     scroll_area_width = 200 #210 in reality, 10 possible transparent pixel
 
     print_counter = 0
+
+   
 
 
 
@@ -280,6 +366,10 @@ def main(window):
                     
 
         player.loop(FPS)
+        saw1.loop()
+        saw2.loop()
+        saw3.loop()
+        saw4.loop()
         handle_move(player, objects)
        
         draw(window, background, bg_image, player, objects, offset_x)
